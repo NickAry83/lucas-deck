@@ -254,6 +254,24 @@
   body.flash .deck-page{animation:decflash 1.2s steps(6);}
   @keyframes decflash{0%{filter:none}18%{filter:invert(1) hue-rotate(80deg)}36%{filter:none}58%{filter:invert(.85)}100%{filter:none}}
 
+
+  /* ---- online redemption system ---- */
+  .is-redeemed .inner{filter:grayscale(.55) brightness(.94);opacity:.85;}
+  .rstamp{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%) rotate(-14deg);z-index:8;pointer-events:none;
+    font-family:'Anton','Bangers','Chakra Petch',sans-serif;font-size:20px;letter-spacing:3px;text-transform:uppercase;
+    color:#57f39a;border:3px solid #57f39a;border-radius:6px;padding:3px 14px;background:rgba(0,0,0,.08);
+    box-shadow:0 0 14px color-mix(in srgb, #57f39a 50%, transparent);white-space:nowrap;}
+  .rstamp small{display:block;font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;text-align:center;}
+  body.admin article.card:not([data-cid=""]){cursor:pointer;}
+  body.admin article.card.admin-pending{outline:4px dashed #ff8a1e;outline-offset:4px;}
+  .adminbar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:99;display:flex;gap:10px;align-items:center;
+    background:#111;border:1px solid #444;border-radius:10px;padding:10px 14px;color:#eee;font-family:'Share Tech Mono',monospace;font-size:12px;
+    box-shadow:0 10px 30px rgba(0,0,0,.5);}
+  .adminbar button{font-family:inherit;font-size:12px;cursor:pointer;border-radius:6px;border:1px solid #666;background:#222;color:#fff;padding:7px 12px;}
+  .adminbar button.primary{background:#2e9c46;border-color:#2e9c46;}
+  .adminbar .cnt{color:#ffd21a;}
+  @media print{.adminbar{display:none !important;}}
+
   @media (max-width:900px){
     .deck-page{width:100%;min-height:auto;padding:20px 16px 26px;}
     .hero h1{font-size:32px;}
@@ -651,5 +669,109 @@
   tick(); setInterval(tick,1000);
 })();
 </script>
+
+<script>
+(function(){
+  var CFG = {"owner": "NickAry83", "repo": "lucas-deck"};
+  var API = 'https://api.github.com/repos/'+CFG.owner+'/'+CFG.repo+'/contents/redeemed.json';
+  var state = {}; var pending = null;
+
+  function cidOf(card){
+    if(card.dataset.cid !== undefined) return card.dataset.cid || null;
+    var sn = card.querySelector('.setno');
+    if(!sn) { card.dataset.cid=''; return null; }
+    var t = sn.textContent.trim();
+    if(t.indexOf('000') !== -1){ card.dataset.cid=''; return null; }   // Card 000 is never markable
+    var cid = t.split('/')[0].replace(/\u00b7/g,'-').replace(/\s/g,'');
+    card.dataset.cid = cid; return cid;
+  }
+  function cards(){ return Array.prototype.slice.call(document.querySelectorAll('article.card')).filter(function(c){return cidOf(c);}); }
+
+  function apply(map){
+    state = map || {};
+    cards().forEach(function(card){
+      var cid = card.dataset.cid, on = !!state[cid];
+      card.classList.toggle('is-redeemed', on);
+      var old = card.querySelector('.rstamp'); if(old) old.remove();
+      var pill = card.querySelector('.status');
+      if(on){
+        var st = document.createElement('div'); st.className='rstamp';
+        st.innerHTML = 'Redeemed<small>'+(state[cid]||'')+'</small>';
+        card.appendChild(st);
+        if(pill){ pill.textContent='USED'; pill.style.background='#777'; pill.style.color='#fff'; pill.style.boxShadow='none'; }
+        var box = card.querySelector('.redeem .box'); if(box && !box.classList.contains('chk')){ box.textContent='\u2713'; box.style.color='inherit'; box.style.textAlign='center'; box.style.fontSize='9px'; box.style.lineHeight='11px'; }
+      }
+    });
+  }
+
+  function load(){
+    fetch('redeemed.json?cb='+Date.now()).then(function(r){ if(!r.ok) throw 0; return r.json(); })
+      .catch(function(){ return fetch(API+'?cb='+Date.now(), {headers:{'Accept':'application/vnd.github.raw+json'}}).then(function(r){ if(!r.ok) throw 0; return r.json(); }); })
+      .then(function(j){ apply(j && j.redeemed ? j.redeemed : {}); })
+      .catch(function(){ apply({}); });
+  }
+  load();
+
+  /* ---------- admin mode: open the page with #admin ---------- */
+  if(location.hash.indexOf('admin') === -1) return;
+  document.body.classList.add('admin');
+  pending = null;
+
+  var bar = document.createElement('div'); bar.className='adminbar';
+  bar.innerHTML = '<span>ADMIN</span><span class="cnt" id="adm-cnt">0 changes</span>'+
+    '<button class="primary" id="adm-save">Save to GitHub</button>'+
+    '<button id="adm-copy">Copy JSON</button>'+
+    '<button id="adm-token">Token</button>';
+  document.body.appendChild(bar);
+
+  function cur(){ var m={}; Object.keys(state).forEach(function(k){m[k]=state[k];}); return m; }
+  function today(){ var d=new Date(); function p(n){return String(n).padStart(2,'0');} return p(d.getMonth()+1)+'.'+p(d.getDate())+'.'+String(d.getFullYear()).slice(2); }
+
+  document.addEventListener('click', function(e){
+    var card = e.target.closest && e.target.closest('article.card');
+    if(!card || !card.dataset.cid) return;
+    if(e.target.closest('.adminbar')) return;
+    if(!pending) pending = cur();
+    var cid = card.dataset.cid;
+    if(pending[cid]) delete pending[cid]; else pending[cid] = today();
+    card.classList.toggle('admin-pending');
+    var n = 0, a = Object.keys(pending), b = cur();
+    a.forEach(function(k){ if(!b[k]) n++; }); Object.keys(b).forEach(function(k){ if(!pending[k]) n++; });
+    document.getElementById('adm-cnt').textContent = n + ' changes';
+  });
+
+  function payload(){ return JSON.stringify({redeemed: pending || cur()}, null, 2); }
+
+  document.getElementById('adm-copy').onclick = function(){
+    navigator.clipboard.writeText(payload()).then(function(){
+      alert('JSON copied. Paste it into redeemed.json on GitHub:\nhttps://github.com/'+CFG.owner+'/'+CFG.repo+'/edit/main/redeemed.json');
+      window.open('https://github.com/'+CFG.owner+'/'+CFG.repo+'/edit/main/redeemed.json','_blank');
+    });
+  };
+
+  document.getElementById('adm-token').onclick = function(){
+    var t = prompt('Paste a GitHub fine-grained token (Contents: Read+Write on your deck repos). It is stored ONLY in this browser on this device.', localStorage.getItem('deckToken')||'');
+    if(t !== null) localStorage.setItem('deckToken', t.trim());
+  };
+
+  document.getElementById('adm-save').onclick = function(){
+    var tok = localStorage.getItem('deckToken');
+    if(!tok){ document.getElementById('adm-token').click(); tok = localStorage.getItem('deckToken'); if(!tok) return; }
+    var hdr = {'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json'};
+    fetch(API, {headers: hdr}).then(function(r){ return r.ok ? r.json() : null; }).then(function(meta){
+      var body = {message:'Redemption update', content: btoa(payload())};
+      if(meta && meta.sha) body.sha = meta.sha;
+      return fetch(API, {method:'PUT', headers: hdr, body: JSON.stringify(body)});
+    }).then(function(r){
+      if(r && r.ok){ apply(pending || cur()); pending=null;
+        document.querySelectorAll('.admin-pending').forEach(function(c){c.classList.remove('admin-pending');});
+        document.getElementById('adm-cnt').textContent='0 changes';
+        alert('Saved. Live for everyone within about a minute.');
+      } else { alert('Save failed (check token permissions). Use Copy JSON as backup.'); }
+    }).catch(function(){ alert('Save failed. Use Copy JSON as backup.'); });
+  };
+})();
+</script>
+
 </body>
 </html>
